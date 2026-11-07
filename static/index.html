@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLM Inbox</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div id="app">
+  <aside id="list">
+    <header><h1>LLM Inbox</h1><label class="toggle"><input type="checkbox" id="show-handled"> show handled</label></header>
+    <ul id="messages"></ul>
+    <p id="empty" class="muted" hidden>No messages yet. When a model contacts you, it shows up here.</p>
+  </aside>
+  <main id="thread">
+    <p id="placeholder" class="muted">Pick a message on the left.</p>
+    <div id="detail" hidden>
+      <div id="head">
+        <div><span id="d-app" class="app"></span> · <span id="d-model" class="model"></span> · <span id="d-at" class="muted"></span></div>
+        <div><span id="d-status" class="status"></span> <button id="btn-done">Mark handled</button> <button id="btn-reopen" hidden>Reopen</button></div>
+      </div>
+      <section class="msg-to-eli"><h2>Message to Eli</h2><pre id="d-message"></pre></section>
+      <details id="context"><summary>Context the model had</summary>
+        <h3>System prompt</h3><pre id="d-system"></pre>
+        <h3>Conversation</h3><div id="d-conv"></div>
+      </details>
+      <section id="chat">
+        <div id="turns"></div>
+        <div id="composer">
+          <textarea id="reply" rows="3" placeholder="Reply to the model… (Enter sends, Shift+Enter for a new line)"></textarea>
+          <button id="send">Send</button>
+        </div>
+        <p id="hint" class="muted"></p>
+      </section>
+    </div>
+  </main>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.elityre.llm-inbox</string>
+  <key>ProgramArguments</key><array>
+    <string>/Users/elityre/Documents/agent-coding/shared/.venv/bin/python3</string>
+    <string>/Users/elityre/Documents/agent-coding/llm-inbox/server.py</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>EnvironmentVariables</key><dict><key>PATH</key><string>/opt/homebrew/bin:/usr/bin:/bin</string></dict>
+  <key>StandardOutPath</key><string>/Users/elityre/Library/Logs/llm-inbox-web.out.log</string>
+  <key>StandardErrorPath</key><string>/Users/elityre/Library/Logs/llm-inbox-web.err.log</string>
+</dict></plist>
