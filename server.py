@@ -33,7 +33,8 @@ _reply_locks_guard = threading.Lock()
 
 def log(s: str) -> None:
     line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {s}\n"
-    print(line, end="", flush=True)
+    if sys.stdout.isatty():                      # echo only for hand runs; under launchd the file is the log
+        print(line, end="", flush=True)
     try:
         LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(LOG_PATH, "a") as f:
