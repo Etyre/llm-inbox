@@ -2,7 +2,7 @@
 // Reply drafts persist per message in localStorage and are cleared only after the model answers.
 'use strict';
 const $ = (id) => document.getElementById(id);
-let messages = [], current = null, streaming = false;
+let messages = [], current = null, streaming = false, openSeq = 0;
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -20,13 +20,15 @@ async function api(path, opts) {
 }
 
 function fmtTime(iso) {
+  if (typeof iso !== 'string') return '';
   const d = new Date(iso.replace(/([+-]\d\d)(\d\d)$/, '$1:$2'));
   return isNaN(d) ? iso : d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
 function blocksToHtml(content) {
   if (typeof content === 'string') return `<pre>${esc(content)}</pre>`;
-  return (content || []).map((b) => {
+  return (Array.isArray(content) ? content : []).map((b) => {
+    if (!b || typeof b !== 'object') return `<pre>${esc(b)}</pre>`;
     if (b.type === 'text') return `<pre>${esc(b.text)}</pre>`;
     if (b.type === 'tool_use') return `<div class="tool">called ${esc(b.name)}: ${esc(JSON.stringify(b.input))}</div>`;
     if (b.type === 'tool_result') return `<div class="tool">tool_result: ${esc(typeof b.content === 'string' ? b.content : JSON.stringify(b.content))}</div>`;
@@ -46,20 +48,31 @@ function renderList() {
   const ul = $('messages'); ul.innerHTML = '';
   const shown = messages.filter((m) => showHandled || m.status !== 'handled');
   $('empty').hidden = shown.length > 0;
+  $('empty').textContent = messages.length ? 'Nothing unhandled. Tick "show handled" to see the rest.' : 'No messages yet. When a model contacts you, it shows up here.';
   for (const m of shown) {
     const li = document.createElement('li');
     li.className = (m.status === 'new' && m.turns === 0 ? 'new ' : '') + (current && current.id === m.id ? 'active' : '');
     li.innerHTML = `<div class="top"><span>${m.status === 'new' && m.turns === 0 ? '<span class="dot"></span>' : ''}${esc(m.app)} · ${esc(m.model)}${isNote(m) ? ' <span class="note-tag" title="Left with note_to_eli: the task carried on">note · task carried on</span>' : ''}</span><span>${esc(fmtTime(m.at))}</span></div>
                     <div class="line">${esc(m.first_line)}</div>`;
-    li.onclick = () => { location.hash = m.id; };
+    li.onclick = () => { if (location.hash.slice(1) === m.id) open(m.id); else location.hash = m.id; };
     ul.appendChild(li);
   }
 }
 
 async function open(id) {
-  if (streaming) return;
-  try { current = await api(`/api/messages/${encodeURIComponent(id)}`); }
-  catch (e) { $('hint').textContent = e.message; return; }
+  if (streaming) return;   // send() opens the message the address bar points at once the answer is in
+  const seq = ++openSeq;   // two clicks in a row: only the latest one is shown
+  let rec;
+  try { rec = await api(`/api/messages/${encodeURIComponent(id)}`); }
+  catch (e) {
+    if (seq !== openSeq) return;
+    // #hint sits inside the detail pane, which is hidden until a message has been opened.
+    if (current) $('hint').textContent = `Could not open ${id}: ${e.message}`;
+    else $('placeholder').textContent = `Could not open ${id}: ${e.message}. Pick a message on the left.`;
+    return;
+  }
+  if (seq !== openSeq || streaming) return;
+  current = rec;
   $('placeholder').hidden = true; $('detail').hidden = false;
   $('d-app').textContent = current.app; $('d-model').textContent = current.model; $('d-at').textContent = fmtTime(current.at);
   $('d-status').textContent = current.status + (current.note ? ` (${current.note})` : '');
@@ -70,12 +83,12 @@ async function open(id) {
   $('d-note').textContent = note ? 'A note: it did not stop the task. The app answered it and the task carried on.' : '';
   $('d-section').classList.toggle('note', note);
   $('d-message').textContent = current.message || '(empty)';
-  $('d-system').textContent = current.system || '(none)';
+  $('d-system').textContent = typeof current.system === 'string' ? current.system : current.system ? JSON.stringify(current.system, null, 2) : '(none)';
   $('d-conv').innerHTML = current.messages.map((m) => `<div class="turn"><div class="role">${esc(m.role)}</div>${blocksToHtml(m.content)}</div>`).join('')
     + `<div class="turn"><div class="role">assistant (the response that carried the ${note ? 'note; the task carried on after it' : 'message'}${current.response.stop_reason ? ', stop_reason=' + esc(current.response.stop_reason) : ''})</div>${blocksToHtml(current.response.content)}</div>`;
   renderTurns();
   // Restore the draft before the box is visible.
-  const ta = $('reply'); ta.value = store.get(draftKey(id)) || '';
+  const ta = $('reply'); ta.value = store.get(draftKey(current.id)) || '';
   $('hint').textContent = current.transcript.length ? '' : `Your first reply is prefaced with: "${current.intro}"`;
   renderList();
   ta.focus();
@@ -84,8 +97,10 @@ async function open(id) {
 function renderTurns() {
   const t = $('turns'); t.innerHTML = '';
   for (const e of current.transcript) addTurn(e.role, e.content, e.stop_reason);
-  t.scrollIntoView(false);
+  scrollToEnd();
 }
+// The thread pane scrolls, not the window.
+function scrollToEnd() { const pane = $('thread'); pane.scrollTop = pane.scrollHeight; }
 function addTurn(role, content, stopReason) {
   const div = document.createElement('div');
   div.className = `turn ${role}`;
@@ -113,7 +128,7 @@ async function send() {
         const ev = /^event: (\w+)/m.exec(chunk)?.[1]; const data = /^data: (.*)$/m.exec(chunk)?.[1];
         if (!ev || !data) continue;
         const d = JSON.parse(data);
-        if (ev === 'delta') { pre.textContent += d.text; window.scrollTo(0, document.body.scrollHeight); }
+        if (ev === 'delta') { pre.textContent += d.text; scrollToEnd(); }
         else if (ev === 'error') throw new Error(d.message);
         else if (ev === 'done') done = d;
       }
@@ -128,16 +143,21 @@ async function send() {
     $('hint').textContent = `Not sent: ${e.message}. Your text is kept below.`;
   } finally {
     streaming = false; $('send').disabled = false; ta.disabled = false; ta.focus();
+    // A message picked while the answer was streaming was not opened then; open it now.
+    const want = location.hash.slice(1); if (want && want !== current.id) open(want);
   }
 }
 
 async function setStatus(status) {
-  await api(`/api/messages/${encodeURIComponent(current.id)}/status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
-  await loadList(); await open(current.id);
+  if (!current) return;
+  try {
+    await api(`/api/messages/${encodeURIComponent(current.id)}/status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
+    await loadList(); await open(current.id);
+  } catch (e) { $('hint').textContent = `Not saved: ${e.message}`; }
 }
 
 $('reply').addEventListener('input', (e) => { if (current) store.set(draftKey(current.id), e.target.value); });
-$('reply').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+$('reply').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
 $('send').onclick = send;
 $('btn-done').onclick = () => setStatus('handled');
 $('btn-reopen').onclick = () => setStatus('new');
@@ -146,7 +166,8 @@ window.addEventListener('hashchange', () => { const id = location.hash.slice(1);
 
 (async () => {
   $('show-handled').checked = store.get('showHandled') === '1';
-  await loadList();
+  // A failed first load must not stop the page: the message can still open and the list retries below.
+  await loadList().catch((e) => { $('empty').hidden = false; $('empty').textContent = `Could not load the inbox: ${e.message}`; });
   const id = location.hash.slice(1);
   if (id) open(id);
   setInterval(() => { if (!streaming) loadList().catch(() => {}); }, 30000);

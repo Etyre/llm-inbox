@@ -1,6 +1,8 @@
 :root { --bg:#fff; --fg:#1a1a1a; --muted:#6b6b6b; --line:#e3e3e3; --side:#f6f6f6; --me:#e8f0fe; --them:#f1f1f1; --accent:#2b5fd9; --new:#d9534f; }
 @media (prefers-color-scheme: dark) { :root { --bg:#141414; --fg:#e8e8e8; --muted:#9a9a9a; --line:#2c2c2c; --side:#1c1c1c; --me:#1f2f52; --them:#232323; --accent:#7aa2ff; --new:#ff7b76; } }
 * { box-sizing: border-box; }
+/* Any display rule below (.note-tag is inline-block) would otherwise show an element marked hidden. */
+[hidden] { display:none !important; }
 body { margin:0; font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; background:var(--bg); color:var(--fg); }
 #app { display:flex; height:100vh; }
 aside#list { width:320px; flex:none; border-right:1px solid var(--line); background:var(--side); display:flex; flex-direction:column; }
