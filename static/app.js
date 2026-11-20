@@ -10,6 +10,8 @@ const store = {
   del(k) { try { localStorage.removeItem(k); } catch {} },
 };
 const draftKey = (id) => `draft:${id}`;
+// A note (the note_to_eli tool) did not stop the task that sent it; every other message did.
+const isNote = (m) => m.halts === false || m.via === 'note';
 
 async function api(path, opts) {
   const r = await fetch(path, opts);
@@ -47,7 +49,7 @@ function renderList() {
   for (const m of shown) {
     const li = document.createElement('li');
     li.className = (m.status === 'new' && m.turns === 0 ? 'new ' : '') + (current && current.id === m.id ? 'active' : '');
-    li.innerHTML = `<div class="top"><span>${m.status === 'new' && m.turns === 0 ? '<span class="dot"></span>' : ''}${esc(m.app)} · ${esc(m.model)}</span><span>${esc(fmtTime(m.at))}</span></div>
+    li.innerHTML = `<div class="top"><span>${m.status === 'new' && m.turns === 0 ? '<span class="dot"></span>' : ''}${esc(m.app)} · ${esc(m.model)}${isNote(m) ? ' <span class="note-tag" title="Left with note_to_eli: the task carried on">note · task carried on</span>' : ''}</span><span>${esc(fmtTime(m.at))}</span></div>
                     <div class="line">${esc(m.first_line)}</div>`;
     li.onclick = () => { location.hash = m.id; };
     ul.appendChild(li);
@@ -62,10 +64,15 @@ async function open(id) {
   $('d-app').textContent = current.app; $('d-model').textContent = current.model; $('d-at').textContent = fmtTime(current.at);
   $('d-status').textContent = current.status + (current.note ? ` (${current.note})` : '');
   $('btn-done').hidden = current.status === 'handled'; $('btn-reopen').hidden = current.status !== 'handled';
+  const note = isNote(current);
+  $('d-heading').textContent = note ? 'Note to Eli' : 'Message to Eli';
+  $('d-note').hidden = !note;
+  $('d-note').textContent = note ? 'A note: it did not stop the task. The app answered it and the task carried on.' : '';
+  $('d-section').classList.toggle('note', note);
   $('d-message').textContent = current.message || '(empty)';
   $('d-system').textContent = current.system || '(none)';
   $('d-conv').innerHTML = current.messages.map((m) => `<div class="turn"><div class="role">${esc(m.role)}</div>${blocksToHtml(m.content)}</div>`).join('')
-    + `<div class="turn"><div class="role">assistant (the response that carried the message${current.response.stop_reason ? ', stop_reason=' + esc(current.response.stop_reason) : ''})</div>${blocksToHtml(current.response.content)}</div>`;
+    + `<div class="turn"><div class="role">assistant (the response that carried the ${note ? 'note; the task carried on after it' : 'message'}${current.response.stop_reason ? ', stop_reason=' + esc(current.response.stop_reason) : ''})</div>${blocksToHtml(current.response.content)}</div>`;
   renderTurns();
   // Restore the draft before the box is visible.
   const ta = $('reply'); ta.value = store.get(draftKey(id)) || '';

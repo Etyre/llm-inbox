@@ -4,6 +4,8 @@
 Serves http://localhost:8798 . Left: the inbox (shared with the `llm-inbox` command). Right: the message, the
 context it was sent from, and a chat that continues the conversation with the model that sent it. Each reply is
 streamed back over Server-Sent Events and appended to the same transcript file the CLI uses.
+A note (the note_to_eli tool: `via: "note"`, `halts: false`) is labelled as a note that did not stop the task;
+everything else about it works like a stop message.
 
 Data (all shared with shared/llm_inbox.py):  ~/Library/Application Support/LLMInbox/messages.jsonl
                                              ~/Library/Application Support/LLMInbox/debriefs/<id>.jsonl
@@ -61,6 +63,7 @@ def reply_lock(rid: str) -> threading.Lock:
 def summary(r: dict) -> dict:
     msg = (r.get("message") or "").strip()
     return {"id": r["id"], "at": r["at"], "app": r["app"], "model": r["model"], "via": r.get("via"),
+            "halts": r.get("halts", True),   # False for a note_to_eli note: the task carried on
             "status": r.get("status", "new"), "note": r.get("note", ""),
             "first_line": msg.splitlines()[0][:160] if msg else "(empty)",
             "turns": len(li.load_transcript(r["id"]))}
@@ -278,6 +281,35 @@ def self_test() -> int:
         urllib.request.urlopen(base + "/api/messages/nope"); check(False, "404 for unknown id")
     except urllib.error.HTTPError as e:
         check(e.code == 404, "404 for unknown id")
+    # A note (note_to_eli): recorded without stopping the task, labelled as such, otherwise like any message.
+    stopped = lc.check(app="selftest-app", model="fake-model", system="SYSTEM", messages=[{"role": "user", "content": "do the task"}],
+                       response={"content": [{"type": "tool_use", "id": "tu2", "name": "note_to_eli", "input": {"message": "A note for Eli, test."}}],
+                                 "stop_reason": "tool_use"}, tools=lc.CONTACT_TOOLS)
+    lst = json.load(urllib.request.urlopen(base + "/api/messages"))
+    notes = [m for m in lst if m["via"] == "note"]
+    check(stopped is None and len(lst) == 2 and len(notes) == 1 and notes[0]["halts"] is False and notes[0]["status"] == "new"
+          and notes[0]["first_line"] == "A note for Eli, test.", "a note is listed, marked as not halting")
+    check([m["halts"] for m in lst if m["id"] == rec["id"]] == [True], "a stop message is listed as halting")
+    nid = notes[0]["id"]
+    det = json.load(urllib.request.urlopen(base + f"/api/messages/{nid}"))
+    check(det["halts"] is False and det["message"] == "A note for Eli, test." and "note you left me" in det["intro"]
+          and "carried on" in det["intro"], "note detail: not halting, and the introduction says the task carried on")
+    js = urllib.request.urlopen(base + "/app.js").read().decode()
+    check("isNote" in js and "did not stop the task" in js and 'id="d-note"' in page, "the page has the note label")
+    req = urllib.request.Request(base + f"/api/messages/{nid}/reply", data=json.dumps({"text": "Thanks for the note"}).encode(),
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    events = urllib.request.urlopen(req).read().decode()
+    kw = _FakeClient.calls[-1]
+    first_user = kw["messages"][-1]["content"]
+    check("event: done" in events and first_user[0]["type"] == "tool_result" and first_user[0]["tool_use_id"] == "tu2"
+          and first_user[1]["text"].endswith("Thanks for the note") and len(li.load_transcript(nid)) == 2,
+          "reply to a note: pending note_to_eli call gets a tool_result, transcript saved")
+    check({t["name"] for t in kw["tools"]} >= {"contact_eli", "note_to_eli"}, "reply to a note offers both tools")
+    req = urllib.request.Request(base + f"/api/messages/{nid}/status", data=json.dumps({"status": "handled"}).encode(),
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    urllib.request.urlopen(req).read()
+    check([m["status"] for m in json.load(urllib.request.urlopen(base + "/api/messages")) if m["id"] == nid] == ["handled"],
+          "a note can be marked handled")
     httpd.shutdown()
     print("SELF-TEST", "OK" if ok else "FAILED")
     return 0 if ok else 1
